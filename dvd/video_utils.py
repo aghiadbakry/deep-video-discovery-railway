@@ -462,32 +462,92 @@ def download_srt_subtitle(video_url: str, output_path: str):
                                 srt_lines = []
                                 counter = 1
                                 i = 0
+                                
+                                # Debug: show first few lines to understand format
+                                print(f"📄 First 15 lines of subtitle content (length: {len(content)} chars):")
+                                for j, l in enumerate(lines[:15]):
+                                    print(f"  {j}: {repr(l)}")
+                                
+                                # Try multiple VTT parsing strategies
+                                # Strategy 1: Standard VTT format
                                 while i < len(lines):
                                     line = lines[i].strip()
-                                    if not line or line.startswith('WEBVTT') or line.startswith('NOTE') or line.startswith('Kind:') or line.startswith('STYLE'):
+                                    
+                                    # Skip empty lines
+                                    if not line:
                                         i += 1
                                         continue
+                                    
+                                    # Skip headers and metadata
+                                    if (line.startswith('WEBVTT') or 
+                                        line.startswith('NOTE') or 
+                                        line.startswith('Kind:') or 
+                                        line.startswith('STYLE') or 
+                                        line.startswith('Language:') or
+                                        line.startswith('Region:')):
+                                        i += 1
+                                        continue
+                                    
+                                    # Check for timestamp line (contains -->)
                                     if '-->' in line:
-                                        # This is a timestamp line - convert dots to commas
-                                        # VTT: 00:00:01.234 --> 00:00:03.456
-                                        # SRT: 00:00:01,234 --> 00:00:03,456
-                                        timestamp_line = line.replace('.', ',')
-                                        srt_lines.append(str(counter))
-                                        counter += 1
-                                        srt_lines.append(timestamp_line)
-                                        i += 1
-                                        # Next line(s) are the subtitle text
-                                        text_lines = []
-                                        while i < len(lines) and lines[i].strip() and '-->' not in lines[i]:
-                                            text_lines.append(lines[i].strip())
+                                        # Extract timestamp part (may have cue settings after)
+                                        parts = line.split('-->')
+                                        if len(parts) == 2:
+                                            start_ts = parts[0].strip()
+                                            end_part = parts[1].strip()
+                                            # Extract end timestamp (may have cue settings)
+                                            end_ts = end_part.split()[0] if end_part.split() else end_part
+                                            
+                                            # Convert dots to commas for SRT format
+                                            start_ts_srt = start_ts.replace('.', ',')
+                                            end_ts_srt = end_ts.replace('.', ',')
+                                            timestamp_line = f"{start_ts_srt} --> {end_ts_srt}"
+                                            
+                                            srt_lines.append(str(counter))
+                                            counter += 1
+                                            srt_lines.append(timestamp_line)
                                             i += 1
-                                        if text_lines:  # Only add if there's text
-                                            srt_lines.append('\n'.join(text_lines))
-                                            srt_lines.append('')  # Empty line between entries
+                                            
+                                            # Next line(s) are the subtitle text
+                                            text_lines = []
+                                            while i < len(lines):
+                                                current_line = lines[i].strip()
+                                                if not current_line:
+                                                    i += 1
+                                                    break
+                                                if '-->' in current_line:
+                                                    break
+                                                # Skip cue settings and metadata
+                                                if current_line.startswith(('align:', 'position:', 'size:', 'line:', 'vertical:')):
+                                                    i += 1
+                                                    continue
+                                                text_lines.append(current_line)
+                                                i += 1
+                                            
+                                            if text_lines:  # Only add if there's text
+                                                srt_lines.append('\n'.join(text_lines))
+                                                srt_lines.append('')  # Empty line between entries
+                                            else:
+                                                # No text found, remove the entry we just added
+                                                srt_lines.pop()  # Remove timestamp
+                                                srt_lines.pop()  # Remove counter
+                                                counter -= 1
                                     else:
+                                        # Might be a cue identifier (numeric) - skip it
+                                        # Or might be text without timestamp (shouldn't happen in VTT)
                                         i += 1
+                                
                                 content = '\n'.join(srt_lines)
                                 print(f"✅ Converted VTT to SRT (found {counter-1} subtitle entries)")
+                                
+                                # Debug: show first few lines of converted content
+                                if srt_lines:
+                                    print(f"📄 First 10 lines of converted SRT:")
+                                    for j, l in enumerate(srt_lines[:10]):
+                                        print(f"  {j}: {repr(l)}")
+                                else:
+                                    print(f"⚠️ Warning: No SRT content generated!")
+                                    print(f"⚠️ Original content preview: {content[:500]}")
                             
                             with open(output_path, 'w', encoding='utf-8') as f:
                                 f.write(content)
