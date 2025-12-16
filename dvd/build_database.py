@@ -267,8 +267,19 @@ def init_single_video_db(video_caption_json_path, output_video_db_path, emb_dim)
         _ = vdb.upsert(data)
         with open(video_caption_json_path, "r") as f:
             captions = json.load(f)
-        subject_registry = captions.pop('subject_registry', captions.pop('character_registry', None))          
-        video_length = max([float(k.split("_")[1]) for k in captions.keys()])
+        subject_registry = captions.pop('subject_registry', captions.pop('character_registry', None))
+        
+        # Filter out non-timestamp keys (like 'subject_registry')
+        timestamp_keys = [k for k in captions.keys() if '_' in k and k.split("_")[0].isdigit()]
+        
+        if not timestamp_keys:
+            raise ValueError(
+                f"No valid caption timestamps found in {video_caption_json_path}. "
+                f"Captions keys: {list(captions.keys())}. "
+                f"This usually means the subtitle file was empty or couldn't be parsed correctly."
+            )
+        
+        video_length = max([float(k.split("_")[1]) for k in timestamp_keys])
         video_length = convert_seconds_to_hhmmss(video_length)
         addtional_data = {
             'subject_registry': subject_registry,

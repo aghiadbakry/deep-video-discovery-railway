@@ -455,32 +455,39 @@ def download_srt_subtitle(video_url: str, output_path: str):
                             # Convert VTT to SRT if needed
                             if subtitle_ext == 'vtt' or 'WEBVTT' in content:
                                 print(f"🔄 Converting VTT to SRT format...")
-                                # Simple VTT to SRT conversion
+                                # VTT to SRT conversion with proper timestamp format
+                                # VTT uses: HH:MM:SS.mmm --> HH:MM:SS.mmm
+                                # SRT uses: HH:MM:SS,mmm --> HH:MM:SS,mmm (comma instead of dot)
                                 lines = content.split('\n')
                                 srt_lines = []
                                 counter = 1
                                 i = 0
                                 while i < len(lines):
                                     line = lines[i].strip()
-                                    if not line or line.startswith('WEBVTT') or line.startswith('NOTE') or line.startswith('Kind:'):
+                                    if not line or line.startswith('WEBVTT') or line.startswith('NOTE') or line.startswith('Kind:') or line.startswith('STYLE'):
                                         i += 1
                                         continue
                                     if '-->' in line:
-                                        # This is a timestamp line
+                                        # This is a timestamp line - convert dots to commas
+                                        # VTT: 00:00:01.234 --> 00:00:03.456
+                                        # SRT: 00:00:01,234 --> 00:00:03,456
+                                        timestamp_line = line.replace('.', ',')
                                         srt_lines.append(str(counter))
                                         counter += 1
-                                        srt_lines.append(line)
+                                        srt_lines.append(timestamp_line)
                                         i += 1
                                         # Next line(s) are the subtitle text
                                         text_lines = []
                                         while i < len(lines) and lines[i].strip() and '-->' not in lines[i]:
                                             text_lines.append(lines[i].strip())
                                             i += 1
-                                        srt_lines.append('\n'.join(text_lines))
-                                        srt_lines.append('')  # Empty line between entries
+                                        if text_lines:  # Only add if there's text
+                                            srt_lines.append('\n'.join(text_lines))
+                                            srt_lines.append('')  # Empty line between entries
                                     else:
                                         i += 1
                                 content = '\n'.join(srt_lines)
+                                print(f"✅ Converted VTT to SRT (found {counter-1} subtitle entries)")
                             
                             with open(output_path, 'w', encoding='utf-8') as f:
                                 f.write(content)
