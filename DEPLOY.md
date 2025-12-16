@@ -172,20 +172,12 @@ Cookies expire! Refresh them:
 }
 ```
 
-### `nixpacks.toml`
-```toml
-[phases.setup]
-nixPkgs = ["python3", "pip"]
-
-[phases.install]
-cmds = [
-  "pip install --upgrade pip",
-  "pip install -r requirements.txt"
-]
-
-[start]
-cmd = "python app.py"
+### `Procfile`
 ```
+web: python app.py
+```
+
+**Note:** Railway will auto-detect Python and use `requirements.txt` automatically. The `Procfile` specifies the start command.
 
 ## 🐛 Troubleshooting
 
