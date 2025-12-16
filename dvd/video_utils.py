@@ -626,8 +626,63 @@ def download_srt_subtitle(video_url: str, output_path: str):
                 import traceback
                 print(traceback.format_exc())
                 # Continue to fallback method
+            
+            # FALLBACK: Use yt-dlp's built-in subtitle download with ignoreerrors
+            # This should work even when format validation fails
+            print(f"🔄 Trying yt-dlp subtitle download with ignoreerrors...")
+            
+            subtitle_only_opts = {
+                'writesubtitles': True,
+                'subtitlesformat': 'srt',
+                'skip_download': True,
+                'writeautomaticsub': True,
+                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+                'ignoreerrors': True,  # Ignore all errors including format errors
+                'no_warnings': False,
+                'quiet': False,
+            }
+            
+            if cookies_file:
+                subtitle_only_opts['cookiefile'] = cookies_file
+                subtitle_only_opts['extractor_args'] = {
+                    'youtube': {
+                        'player_client': ['web'],
+                    }
+                }
+            
+            try:
+                with yt_dlp.YoutubeDL(subtitle_only_opts) as ydl:
+                    # Download subtitles - ignoreerrors should allow subtitle download even with format errors
+                    try:
+                        ydl.download([video_url])
+                    except Exception as download_error:
+                        # Even if download() raises an error, subtitles might have been written
+                        error_str = str(download_error).lower()
+                        print(f"⚠️ Download error (checking for subtitles anyway): {error_str[:200]}")
+                        # Don't raise - check for subtitle files anyway
                 
-                # Download subtitles - even if format error occurs, subtitles may have been downloaded
+                # Check if subtitle file was created (even if download() raised an error)
+                all_files_after = os.listdir(output_dir)
+                print(f"🔍 Checking for subtitle files after ignoreerrors download...")
+                print(f"📁 Files found: {all_files_after}")
+                
+                for f in all_files_after:
+                    if f.startswith(video_id) and f.endswith(".srt"):
+                        downloaded_subtitle_path = os.path.join(output_dir, f)
+                        # Check file size - make sure it's not empty
+                        if os.path.getsize(downloaded_subtitle_path) > 0:
+                            shutil.move(downloaded_subtitle_path, output_path)
+                            print(f"✅ Found subtitle file from yt-dlp (ignoreerrors): {f} ({os.path.getsize(output_path)} bytes)")
+                            return  # Success!
+                        else:
+                            print(f"⚠️ Found subtitle file but it's empty: {f}")
+                        
+            except Exception as ytdlp_error:
+                print(f"⚠️ yt-dlp subtitle download failed: {ytdlp_error}")
+                # Continue to next fallback
+            
+            # Additional fallback: Try with original method
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 try:
                     ydl.download([video_url])
                 except Exception as download_error:
