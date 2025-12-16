@@ -445,12 +445,75 @@ def download_srt_subtitle(video_url: str, output_path: str):
                         print(f"✅ Found subtitle URL: {subtitle_url[:80]}...")
                         # Download subtitle directly from URL
                         headers = {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                             'Accept': 'text/vtt, text/srt, */*',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                            'Referer': 'https://www.youtube.com/',
                         }
-                        response = requests.get(subtitle_url, headers=headers, timeout=30)
+                        
+                        # Use cookies if available
+                        cookies_dict = None
+                        if cookies_file and os.path.exists(cookies_file):
+                            try:
+                                from http.cookiejar import MozillaCookieJar
+                                jar = MozillaCookieJar(cookies_file)
+                                jar.load(ignore_discard=True, ignore_expires=True)
+                                cookies_dict = {cookie.name: cookie.value for cookie in jar}
+                                print(f"🍪 Using cookies for subtitle download ({len(cookies_dict)} cookies)")
+                            except Exception as cookie_error:
+                                print(f"⚠️ Could not load cookies for subtitle download: {cookie_error}")
+                        
+                        response = requests.get(
+                            subtitle_url, 
+                            headers=headers, 
+                            cookies=cookies_dict,
+                            timeout=30
+                        )
+                        
+                        print(f"📥 Subtitle download: HTTP {response.status_code}, Content-Length: {len(response.content)} bytes")
+                        
                         if response.status_code == 200:
                             content = response.text
+                            
+                            if not content or len(content.strip()) == 0:
+                                print(f"⚠️ Subtitle content is empty! Response headers: {dict(response.headers)}")
+                                print(f"⚠️ Response URL: {response.url}")
+                                
+                                # Try with fmt parameter if not present
+                                if 'fmt=' not in subtitle_url:
+                                    separator = '&' if '?' in subtitle_url else '?'
+                                    subtitle_url_retry = f"{subtitle_url}{separator}fmt=vtt"
+                                    print(f"🔄 Retrying with fmt=vtt parameter...")
+                                    response2 = requests.get(
+                                        subtitle_url_retry,
+                                        headers=headers,
+                                        cookies=cookies_dict,
+                                        timeout=30
+                                    )
+                                    print(f"📥 Retry response: HTTP {response2.status_code}, length: {len(response2.content)} bytes")
+                                    if response2.status_code == 200 and response2.text and len(response2.text.strip()) > 0:
+                                        content = response2.text
+                                        print(f"✅ Got subtitle content with fmt parameter ({len(content)} chars)")
+                                    else:
+                                        # Last resort: try with tlang parameter for English
+                                        if 'tlang=' not in subtitle_url_retry:
+                                            subtitle_url_retry2 = f"{subtitle_url_retry}&tlang=en"
+                                            print(f"🔄 Retrying with tlang=en parameter...")
+                                            response3 = requests.get(
+                                                subtitle_url_retry2,
+                                                headers=headers,
+                                                cookies=cookies_dict,
+                                                timeout=30
+                                            )
+                                            if response3.status_code == 200 and response3.text and len(response3.text.strip()) > 0:
+                                                content = response3.text
+                                                print(f"✅ Got subtitle content with tlang parameter ({len(content)} chars)")
+                                            else:
+                                                raise ValueError(f"Subtitle download returned empty content after all retries (HTTP {response3.status_code})")
+                                        else:
+                                            raise ValueError(f"Subtitle download returned empty content (HTTP {response2.status_code})")
+                                else:
+                                    raise ValueError("Subtitle download returned empty content - may need authentication or video has no subtitles")
                             
                             # Convert VTT to SRT if needed
                             if subtitle_ext == 'vtt' or 'WEBVTT' in content:
