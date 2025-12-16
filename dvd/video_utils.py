@@ -215,10 +215,11 @@ def download_srt_subtitle(video_url: str, output_path: str):
                 print(f"🔍 Attempting direct subtitle extraction (bypassing format validation)...")
                 
                 with yt_dlp.YoutubeDL(info_opts) as ydl:
-                    # Try to extract info with processing to get subtitles
-                    # We'll catch format errors and ignore them
+                    # CRITICAL: We need process=True to get subtitles, but it may fail on format
+                    # So we'll catch the exception but still try to extract subtitle info
                     info = None
                     video_id = None
+                    process_error_occurred = False
                     
                     try:
                         # First try with process=True to get subtitles
@@ -226,16 +227,92 @@ def download_srt_subtitle(video_url: str, output_path: str):
                         video_id = info.get('id') or info.get('display_id')
                         print(f"✅ Successfully extracted info with processing")
                     except Exception as process_error:
-                        # If processing fails (likely format error), try without processing
+                        # Format errors are expected - but we still need to get subtitle info
                         error_str = str(process_error).lower()
                         if "format" in error_str or "not available" in error_str:
-                            print(f"⚠️ Format error during processing (expected), trying without processing...")
+                            print(f"⚠️ Format error during processing (expected), extracting info anyway...")
+                            process_error_occurred = True
+                            # Even with format error, yt-dlp may have extracted some info
+                            # Try to get the info dict from the exception or extract without processing
                             try:
+                                # Extract without processing to get basic info
                                 info = ydl.extract_info(video_url, download=False, process=False)
                                 video_id = info.get('id') or info.get('display_id')
-                                print(f"✅ Extracted info without processing")
-                            except:
-                                pass
+                                print(f"✅ Extracted basic info without processing")
+                                
+                                # Manually download webpage and extract player_response for subtitles
+                                try:
+                                    import requests
+                                    import re
+                                    import json
+                                    
+                                    # Download the YouTube page directly
+                                    headers = {
+                                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                                    }
+                                    
+                                    if cookies_file:
+                                        # Use cookies if available
+                                        from http.cookiejar import MozillaCookieJar
+                                        jar = MozillaCookieJar(cookies_file)
+                                        jar.load(ignore_discard=True, ignore_expires=True)
+                                        session = requests.Session()
+                                        session.cookies = jar
+                                    else:
+                                        session = requests.Session()
+                                    
+                                    response = session.get(video_url, headers=headers, timeout=30)
+                                    webpage = response.text
+                                    
+                                    # Extract player_response from webpage
+                                    # YouTube embeds this in a script tag
+                                    patterns = [
+                                        r'var ytInitialPlayerResponse = ({.+?});',
+                                        r'ytInitialPlayerResponse\s*=\s*({.+?});',
+                                        r'"playerResponse":({.+?})',
+                                    ]
+                                    
+                                    player_response = None
+                                    for pattern in patterns:
+                                        match = re.search(pattern, webpage, re.DOTALL)
+                                        if match:
+                                            try:
+                                                player_response_str = match.group(1)
+                                                player_response = json.loads(player_response_str)
+                                                print(f"✅ Found player_response in webpage")
+                                                break
+                                            except:
+                                                continue
+                                    
+                                    if player_response:
+                                        # Extract subtitles from player_response
+                                        captions = player_response.get('captions', {})
+                                        if captions:
+                                            tracklist = captions.get('playerCaptionsTracklistRenderer', {})
+                                            if tracklist:
+                                                tracks = tracklist.get('captionTracks', [])
+                                                if tracks:
+                                                    # Add subtitles to info dict
+                                                    if 'subtitles' not in info:
+                                                        info['subtitles'] = {}
+                                                    for track in tracks:
+                                                        lang = track.get('languageCode', 'unknown')
+                                                        base_url = track.get('baseUrl')
+                                                        if base_url:
+                                                            if lang not in info['subtitles']:
+                                                                info['subtitles'][lang] = []
+                                                            info['subtitles'][lang].append({
+                                                                'url': base_url,
+                                                                'ext': 'vtt'
+                                                            })
+                                                    print(f"✅ Manually extracted {len(info['subtitles'])} subtitle languages from webpage")
+                                except Exception as subtitle_extract_error:
+                                    print(f"⚠️ Could not manually extract subtitles: {subtitle_extract_error}")
+                                    import traceback
+                                    print(traceback.format_exc())
+                            except Exception as fallback_error:
+                                print(f"⚠️ Fallback extraction failed: {fallback_error}")
                         else:
                             raise
                     
