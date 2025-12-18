@@ -130,14 +130,15 @@ def solve(video_url: str, question: str):
                     yield accumulated_text
                     
                 # Check if assistant called the finish function
-                tool_calls = msg.get("tool_calls", [])
-                for tc in tool_calls:
-                    if tc.get("function", {}).get("name") == "finish":
-                        try:
-                            args = json.loads(tc.get("function", {}).get("arguments", "{}"))
-                            final_answer = args.get("answer", "")
-                        except:
-                            pass
+                tool_calls = msg.get("tool_calls") or []
+                if tool_calls:
+                    for tc in tool_calls:
+                        if tc.get("function", {}).get("name") == "finish":
+                            try:
+                                args = json.loads(tc.get("function", {}).get("arguments", "{}"))
+                                final_answer = args.get("answer", "")
+                            except:
+                                pass
             
             # Show when a tool is being called
             elif msg.get("role") == "tool_call":
