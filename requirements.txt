@@ -10,4 +10,5 @@ python-dotenv
 gradio
 typing_extensions
 pydantic
+youtube-transcript-api
 
